@@ -177,7 +177,7 @@ class ModernArknightsLauncher(FramelessWindow):
         super().resizeEvent(e)
         # 当窗口改变大小时，同步拉伸右侧内部的顶部抗反光层
         if hasattr(self, 'titleShadow'):
-            self.titleShadow.setGeometry(0, 0, self.rightContent.width(), 60)
+            self.titleShadow.setGeometry(0, 0, self.width(), 60)
 
     def update_background(self):
         bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png'))
@@ -191,48 +191,56 @@ class ModernArknightsLauncher(FramelessWindow):
             if not pixmap.isNull():
                 ratio = pixmap.width() / pixmap.height()
                 target_height = 550
-                # 右侧壁纸自适应真实宽度
-                right_width = target_height * ratio
-                # 总窗口宽度 = 侧边栏的固宽(280) + 右侧完美比例宽度 
-                total_width = int(right_width) + 280
-                
-                # 约束宽度的最小值和最大值，防止界面错乱或超出屏幕 (900是合理的最小宽度)
+                total_width = target_height * ratio
                 total_width = max(900, min(total_width, 1600))
-                self.resize(total_width, target_height)
+                self.resize(int(total_width), target_height)
 
         self.setStyleSheet(f"""
             ModernArknightsLauncher {{
                 background-color: #1a1a1a;
+                {bg_css}
+                border-radius: 12px;
             }}
             #LeftSidebar {{
-                background-color: rgba(30, 30, 30, 0.7);
-                border-right: 1px solid rgba(255, 255, 255, 0.05);
+                background-color: rgba(30, 30, 30, 0.85);
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
             }}
             #RightContent {{
-                {bg_css}
+                background: transparent;
+            }}
+            #TitleShadow {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
                 border-top-left-radius: 12px;
-                border-bottom-left-radius: 12px;
+                border-top-right-radius: 12px;
             }}
             #WatermarkLabel {{
                 color: rgba(255, 255, 255, 0.05);
                 font-size: 80px;
                 font-weight: bold;
+                background: transparent;
             }}
         """)
 
     def initUI(self):
         self.mainLayout = QHBoxLayout(self)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.mainLayout.setSpacing(0)
-        
-        # ----------------- 左侧边栏 (透明/功能区) -----------------
+        self.mainLayout.setContentsMargins(40, 60, 40, 40)
+        self.mainLayout.setSpacing(40)
+
+        # ----------------- 全局抗反光层 -----------------
+        self.titleShadow = QFrame(self)
+        self.titleShadow.setObjectName("TitleShadow")
+        self.titleShadow.setGeometry(0, 0, 2000, 60)
+        self.titleShadow.lower() # 放到背景和内容之间
+
+        # ----------------- 悬浮左侧边栏 (透明/功能区) -----------------
         self.sidebar = QFrame()
         self.sidebar.setObjectName("LeftSidebar")
         self.sidebar.setFixedWidth(280)
         self.sidebarLayout = QVBoxLayout(self.sidebar)
         self.sidebarLayout.setContentsMargins(20, 30, 20, 30)
         self.sidebarLayout.setSpacing(15)
-        
+
         # APP 标题部分
         self.titleLayout = QHBoxLayout()
         self.iconLabel = IconWidget(OFFICIAL_ICON, self)
@@ -243,84 +251,69 @@ class ModernArknightsLauncher(FramelessWindow):
         self.titleLayout.addWidget(self.titleLabel)
         self.titleLayout.addStretch()
         self.sidebarLayout.addLayout(self.titleLayout)
-        
+
         self.sidebarLayout.addSpacing(20)
-        
+
         # 服务器选择区
         self.serverLabel = SubtitleLabel("服务器选择", self)
         self.sidebarLayout.addWidget(self.serverLabel)
-        
+
         self.serverRow = QHBoxLayout()
         self.serverPivot = SegmentedWidget(self)
         self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
         self.serverPivot.addItem('bilibili', 'Bilibili 服', self.on_server_switched, QIcon(BSERVER_ICON))
         self.serverRow.addWidget(self.serverPivot)
-        # 靠左对齐，如果想填满可以不加Stretch
         self.serverRow.addStretch(1)
         self.sidebarLayout.addLayout(self.serverRow)
-        
+
         self.sidebarLayout.addSpacing(20)
-        
+
         # 账号管理区
         self.accLabel = SubtitleLabel("当前账号", self)
         self.sidebarLayout.addWidget(self.accLabel)
-        
+
         self.accRow = QHBoxLayout()
         self.accountCombo = ComboBox(self)
         self.accountCombo.setMinimumWidth(180)
-        
+
         self.saveAccBtn = ToolButton(FluentIcon.SAVE, self)
         self.saveAccBtn.setToolTip("将当前游戏的登录状态保存为新账号")
         self.saveAccBtn.clicked.connect(self.on_save_account)
-        
+
         self.accRow.addWidget(self.accountCombo)
         self.accRow.addWidget(self.saveAccBtn)
         self.sidebarLayout.addLayout(self.accRow)
-        
+
         self.sidebarLayout.addSpacing(20)
-        
+
         # 实用工具区
         self.toolsLabel = SubtitleLabel("系统工具", self)
         self.sidebarLayout.addWidget(self.toolsLabel)
-        
+
         self.maaBtn = PushButton('启动 MAA', self, FluentIcon.ROBOT)
         self.maaBtn.clicked.connect(self.on_maa_clicked)
         if os.path.exists(MAA_ICON):
             self.maaBtn.setIcon(QIcon(MAA_ICON))
         self.sidebarLayout.addWidget(self.maaBtn)
-        
+
         self.fixBtn = PushButton('修复记忆模糊', self, FluentIcon.SYNC)
         self.fixBtn.clicked.connect(self.on_fix_clicked)
         self.sidebarLayout.addWidget(self.fixBtn)
-        
+
         self.sidebarLayout.addStretch(1)
-        
+
         # 底部设置区
         self.settingsBtn = PushButton('全局设置', self, FluentIcon.SETTING)
         self.settingsBtn.clicked.connect(self.on_settings_clicked)
         self.sidebarLayout.addWidget(self.settingsBtn)
-        
+
         self.mainLayout.addWidget(self.sidebar)
 
         # ----------------- 右侧主视窗 (背景 + 大按钮) -----------------
-        self.rightContent = QFrame()
-        self.rightContent.setObjectName("RightContent")
-        
-        # 将抗反光层移入右侧主画内，确保绝对置顶且不会被布局遮挡
-        self.titleShadow = QFrame(self.rightContent)
-        self.titleShadow.setObjectName("TitleShadow")
-        self.titleShadow.setStyleSheet("""
-            #TitleShadow {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
-                border-top-right-radius: 12px;
-            }
-        """)
-        self.titleShadow.setGeometry(0, 0, 2000, 60)
-        
-        self.rightLayout = QVBoxLayout(self.rightContent)
-        self.rightLayout.setContentsMargins(40, 40, 40, 40)
+        self.rightContent = QVBoxLayout()
+        self.rightContent.setContentsMargins(0, 0, 0, 0)
+        self.rightContent.addStretch(1)
 
-        self.rightLayout.addStretch(1)
         self.watermarkLayout = QHBoxLayout()
         self.watermark = QLabel("RHODES ISLAND", self)
         self.watermark.setObjectName("WatermarkLabel")
@@ -328,30 +321,30 @@ class ModernArknightsLauncher(FramelessWindow):
         self.watermarkLayout.addStretch(1)
         self.watermarkLayout.addWidget(self.watermark)
         self.watermarkLayout.addStretch(1)
-        self.rightLayout.addLayout(self.watermarkLayout)
-        self.rightLayout.addStretch(1)
-        
+        self.rightContent.addLayout(self.watermarkLayout)
+        self.rightContent.addStretch(1)
+
         # 底部：巨型启动按钮
         self.startBtnLayout = QHBoxLayout()
         self.startBtnLayout.addStretch(1)
-        
+
         self.startBtn = PrimaryPushButton(' 启动游戏  START', self, FluentIcon.PLAY)
         self.startBtn.setFixedSize(300, 70)
         self.startBtn.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
         self.startBtn.clicked.connect(self.on_start_game)
-        
+
         # 增加按钮阴影展现质感
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 80))
         shadow.setOffset(0, 5)
         self.startBtn.setGraphicsEffect(shadow)
-        
+
         self.startBtnLayout.addWidget(self.startBtn)
-        self.rightLayout.addLayout(self.startBtnLayout)
-        
-        self.mainLayout.addWidget(self.rightContent)
-        
+        self.rightContent.addLayout(self.startBtnLayout)
+
+        self.mainLayout.addLayout(self.rightContent)
+
         # 默认选中官服
         self.current_server = 'official'
         self.serverPivot.setCurrentItem('official')
