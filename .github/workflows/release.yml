@@ -29,6 +29,22 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      - name: 还原拆分的大型资源文件 (Reconstruct large resource files)
+        shell: bash
+        run: |
+          python -c "
+          import glob
+          def m(t):
+              parts = sorted(glob.glob(t + '.part*'))
+              if not parts: return
+              with open(t, 'wb') as outfile:
+                  for part in parts:
+                      with open(part, 'rb') as infile: outfile.write(infile.read())
+              print('Merged', t)
+          m('resources/ArknightsGame.zip')
+          m('resources/Payload_B/BLPlatform64/BLWebBrowser/libcef.dll')
+          "
+
       - name: 运行 PyInstaller 打包 (Build Executable)
         run: |
           pyinstaller --noconsole --onefile --add-data "resources;resources" --icon "resources/Icons/ArknightsLauncher.ico" main.py -y -n "ArknightsLauncher-Py-StandAlone"
