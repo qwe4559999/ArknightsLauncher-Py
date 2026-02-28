@@ -168,9 +168,13 @@ class ModernArknightsLauncher(FramelessWindow):
 
         # 自定义暗色无边框标题栏
         self.setTitleBar(MSFluentTitleBar(self))
-        # 让标题栏背景透明，从而融入底层的界面
-        self.titleBar.setStyleSheet("background: transparent;")
-        
+        # 增加一个黑色的半透明背景，防止窗口背景太亮导致标题栏按钮（关闭/最小化）不可见
+        self.titleBar.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
+            }
+        """)
+
         # 强制暗黑流利风格
         setTheme(Theme.DARK)
         self.update_background()
@@ -293,16 +297,25 @@ class ModernArknightsLauncher(FramelessWindow):
         self.headerRow = QHBoxLayout()
         self.headerRow.addStretch(1)
         
-        self.serverPivot = SegmentedWidget(self)
-        
+        # 把 serverPivot 放入一个 QFrame 中，并赋予半透明黑色背景底座，防止因为亮色壁纸看不清字
+        self.serverPivotContainer = QFrame(self)
+        self.serverPivotContainer.setStyleSheet("""
+            QFrame {
+                background-color: rgba(0, 0, 0, 0.5);
+                border-radius: 8px;
+            }
+        """)
+        self.serverPivotLayout = QHBoxLayout(self.serverPivotContainer)
+        self.serverPivotLayout.setContentsMargins(6, 6, 6, 6)
+
+        self.serverPivot = SegmentedWidget(self.serverPivotContainer)
+
         # 添加带有真实图标的 Server Item
         self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
         self.serverPivot.addItem('bilibili', 'Bilibili 服务器', self.on_server_switched, QIcon(BSERVER_ICON))
         
-        self.headerRow.addWidget(self.serverPivot)
-        self.rightLayout.addLayout(self.headerRow)
-        
-        # 中间：背景水印占位（增强游戏氛围）
+        self.serverPivotLayout.addWidget(self.serverPivot)
+        self.headerRow.addWidget(self.serverPivotContainer)
         self.rightLayout.addStretch(1)
         self.watermarkLayout = QHBoxLayout()
         self.watermark = QLabel("RHODES ISLAND", self)
