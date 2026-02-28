@@ -27,3 +27,7 @@ dist/
 # OS 系统文件
 .DS_Store
 Thumbs.db
+
+# 忽略 GitHub 不允许通过的超大文件
+resources/ArknightsGame.zip
+resources/Payload_B/BLPlatform64/BLWebBrowser/libcef.dll

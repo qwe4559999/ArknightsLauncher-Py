@@ -110,7 +110,7 @@ class SettingsDialog(MessageBoxBase):
         self.viewLayout.addWidget(BodyLabel("自定义启动器背景图:", self))
         self.bgRow = QHBoxLayout()
         self.bgInput = LineEdit(self)
-        self.bgInput.setText(self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.jpg')))
+        self.bgInput.setText(self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png')))
         self.bgInput.setReadOnly(True)
         self.bgBtn = PushButton("浏览", self)
         self.bgBtn.clicked.connect(self.choose_bg_path)
@@ -176,10 +176,25 @@ class ModernArknightsLauncher(FramelessWindow):
         self.update_background()
 
     def update_background(self):
-        bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.jpg'))
+        bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png'))
         # 转换为正斜杠并确保路径存在以正常渲染，如果不存在退回空实现或默认深色
         bg_url = bg_path.replace("\\", "/") if os.path.exists(bg_path) else "none"
         bg_css = f"border-image: url({bg_url}) 0 0 0 0 stretch stretch;" if bg_url != "none" else ""
+
+        # 动态根据壁纸比例调整窗口宽度以防压缩 (将高度固定在 550)
+        if os.path.exists(bg_path):
+            pixmap = QPixmap(bg_path)
+            if not pixmap.isNull():
+                ratio = pixmap.width() / pixmap.height()
+                target_height = 550
+                # 右侧壁纸自适应真实宽度
+                right_width = target_height * ratio
+                # 总窗口宽度 = 侧边栏的固宽(280) + 右侧完美比例宽度 
+                total_width = int(right_width) + 280
+                
+                # 约束宽度的最小值和最大值，防止界面错乱或超出屏幕 (900是合理的最小宽度)
+                total_width = max(900, min(total_width, 1600))
+                self.resize(total_width, target_height)
 
         self.setStyleSheet(f"""
             ModernArknightsLauncher {{
