@@ -45,3 +45,10 @@ python main.py
 - **游戏客户端路径:** 指向带有 `Arknights.exe` 的客户端根目录。
 - **MAA路径:** 指向 `MAA.exe` 以启用一键唤醒。
 - **自定义背景图:** 可以在这里选择系统本地的任何 `.jpg` / `.png` 文件一键化身为你喜好的干员壁纸。（默认壁纸位于 `resources/bg.jpg`）
+
+## 🙏 致谢与参考项目 (Credits)
+
+本启动器的部分逆向原理与基础服务端切换机制灵感源于社区作者的无私分享：
+- 原版 C# ArknightsLauncher 切换机制参考自：[MaaAssistantArknights / 最初的某个 C# 仓库作者] (如有特定原仓库名字可以在此加链接)
+- 特别鸣谢：提供高颜值现代控件基础的开源项目 [PyQt-Fluent-Widgets](https://github.com/zhiyiYo/PyQt-Fluent-Widgets)。
+- 资源与致谢归原《明日方舟》及鹰角网络所有，仅供学习交流使用。
