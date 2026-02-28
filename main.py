@@ -246,6 +246,21 @@ class ModernArknightsLauncher(FramelessWindow):
         
         self.sidebarLayout.addSpacing(20)
         
+        # 服务器选择区
+        self.serverLabel = SubtitleLabel("服务器选择", self)
+        self.sidebarLayout.addWidget(self.serverLabel)
+        
+        self.serverRow = QHBoxLayout()
+        self.serverPivot = SegmentedWidget(self)
+        self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
+        self.serverPivot.addItem('bilibili', 'Bilibili 服', self.on_server_switched, QIcon(BSERVER_ICON))
+        self.serverRow.addWidget(self.serverPivot)
+        # 靠左对齐，如果想填满可以不加Stretch
+        self.serverRow.addStretch(1)
+        self.sidebarLayout.addLayout(self.serverRow)
+        
+        self.sidebarLayout.addSpacing(20)
+        
         # 账号管理区
         self.accLabel = SubtitleLabel("当前账号", self)
         self.sidebarLayout.addWidget(self.accLabel)
@@ -304,28 +319,7 @@ class ModernArknightsLauncher(FramelessWindow):
         
         self.rightLayout = QVBoxLayout(self.rightContent)
         self.rightLayout.setContentsMargins(40, 40, 40, 40)
-        
-        # 顶部：服务器切换器
-        self.headerRow = QHBoxLayout()
-        self.headerRow.addStretch(1)
 
-        self.serverPivot = SegmentedWidget(self.rightContent)
-
-        # 添加带有真实图标的 Server Item
-        self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
-        self.serverPivot.addItem('bilibili', 'Bilibili 服务器', self.on_server_switched, QIcon(BSERVER_ICON))
-        
-        # 为了让右侧的 SegmentedWidget 更美观，我们可以增加一点内间距并稍微修改它的层级表现
-        self.serverPivot.setStyleSheet("""
-            SegmentedWidget {
-                background-color: rgba(0, 0, 0, 0.4);
-                border-radius: 6px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
-
-        self.headerRow.addWidget(self.serverPivot)
-        self.rightLayout.addLayout(self.headerRow)  # 将 headerRow 添加到右侧主布局中
         self.rightLayout.addStretch(1)
         self.watermarkLayout = QHBoxLayout()
         self.watermark = QLabel("RHODES ISLAND", self)
