@@ -169,11 +169,8 @@ class ModernArknightsLauncher(FramelessWindow):
         # 自定义暗色无边框标题栏
         self.setTitleBar(MSFluentTitleBar(self))
         # 增加一个黑色的半透明背景，防止窗口背景太亮导致标题栏按钮（关闭/最小化）不可见
-        self.titleBar.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
-            }
-        """)
+        # 注意：不要给整个 QWidget 设置，否则会破坏 FrameLess 的布局，只设置特定控件或透明
+        self.titleBar.setStyleSheet("background: transparent;")
 
         # 强制暗黑流利风格
         setTheme(Theme.DARK)
