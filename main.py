@@ -6,7 +6,7 @@ import psutil
 import subprocess
 import ctypes
 
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QBrush, QAction
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -169,28 +169,15 @@ class ModernArknightsLauncher(FramelessWindow):
         # 自定义暗色无边框标题栏
         self.setTitleBar(MSFluentTitleBar(self))
 
-        # 添加一个顶部深色渐变阴影层，用来保证各种鲜艳壁纸下标题栏按钮(关闭/最小化)和字体的可见度
-        self.titleShadow = QFrame(self)
-        self.titleShadow.setObjectName("TitleShadow")
-        self.titleShadow.setStyleSheet("""
-            #TitleShadow {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
-            }
-        """)
-        # 初始化时设定一次坐标，使其铺满顶部区域 (高度约为50)
-        self.titleShadow.setGeometry(0, 0, 2000, 50)
-        # 将它置于底层之上，但在 titleBar 之下
-        self.titleShadow.lower()
-
         # 强制暗黑流利风格
         setTheme(Theme.DARK)
         self.update_background()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        # 当窗口改变大小时，同步拉伸顶部黑色抗反光层
+        # 当窗口改变大小时，同步拉伸右侧内部的顶部抗反光层
         if hasattr(self, 'titleShadow'):
-            self.titleShadow.setGeometry(0, 0, self.width(), 60)
+            self.titleShadow.setGeometry(0, 0, self.rightContent.width(), 60)
 
     def update_background(self):
         bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png'))
@@ -303,6 +290,18 @@ class ModernArknightsLauncher(FramelessWindow):
         # ----------------- 右侧主视窗 (背景 + 大按钮) -----------------
         self.rightContent = QFrame()
         self.rightContent.setObjectName("RightContent")
+        
+        # 将抗反光层移入右侧主画内，确保绝对置顶且不会被布局遮挡
+        self.titleShadow = QFrame(self.rightContent)
+        self.titleShadow.setObjectName("TitleShadow")
+        self.titleShadow.setStyleSheet("""
+            #TitleShadow {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
+                border-top-right-radius: 12px;
+            }
+        """)
+        self.titleShadow.setGeometry(0, 0, 2000, 60)
+        
         self.rightLayout = QVBoxLayout(self.rightContent)
         self.rightLayout.setContentsMargins(40, 40, 40, 40)
         
@@ -364,7 +363,9 @@ class ModernArknightsLauncher(FramelessWindow):
         self.serverPivot.setCurrentItem('official')
         self.on_server_switched('official')
 
-        # 核心修复：将标题栏及控制按钮提升到渲染的最上层，防止被主体背景色覆盖
+        # 核心修复：将背景顶栏暗影层、标题栏及控制按钮提升到渲染的最上层，防止被主体背景色覆盖
+        if hasattr(self, 'titleShadow'):
+            self.titleShadow.raise_()
         self.titleBar.raise_()
 
     def on_server_switched(self, routeKey):
@@ -509,7 +510,8 @@ class ModernArknightsLauncher(FramelessWindow):
             exe_path = os.path.join(game_path, "Arknights.exe")
             if os.path.exists(exe_path):
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", exe_path, None, game_path, 1)
-                InfoBar.success('正在进入游戏', f'模块注入成功，正在拉起游戏终端...', position=InfoBarPosition.TOP, duration=2000, parent=self)
+                InfoBar.success('正在进入游戏', f'模块注入成功，正在拉起游戏终端，启动器即将关闭...', position=InfoBarPosition.TOP, duration=2000, parent=self)
+                QTimer.singleShot(1500, self.close)
             else:
                 InfoBar.error('错误', '在游戏目录下未找到 Arknights.exe，请检查游戏是否损坏！', position=InfoBarPosition.TOP, parent=self)
 
