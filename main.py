@@ -168,13 +168,29 @@ class ModernArknightsLauncher(FramelessWindow):
 
         # 自定义暗色无边框标题栏
         self.setTitleBar(MSFluentTitleBar(self))
-        # 增加一个黑色的半透明背景，防止窗口背景太亮导致标题栏按钮（关闭/最小化）不可见
-        # 注意：不要给整个 QWidget 设置，否则会破坏 FrameLess 的布局，只设置特定控件或透明
-        self.titleBar.setStyleSheet("background: transparent;")
+
+        # 添加一个顶部深色渐变阴影层，用来保证各种鲜艳壁纸下标题栏按钮(关闭/最小化)和字体的可见度
+        self.titleShadow = QFrame(self)
+        self.titleShadow.setObjectName("TitleShadow")
+        self.titleShadow.setStyleSheet("""
+            #TitleShadow {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
+            }
+        """)
+        # 初始化时设定一次坐标，使其铺满顶部区域 (高度约为50)
+        self.titleShadow.setGeometry(0, 0, 2000, 50)
+        # 将它置于底层之上，但在 titleBar 之下
+        self.titleShadow.lower()
 
         # 强制暗黑流利风格
         setTheme(Theme.DARK)
         self.update_background()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # 当窗口改变大小时，同步拉伸顶部黑色抗反光层
+        if hasattr(self, 'titleShadow'):
+            self.titleShadow.setGeometry(0, 0, self.width(), 60)
 
     def update_background(self):
         bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png'))
@@ -293,26 +309,24 @@ class ModernArknightsLauncher(FramelessWindow):
         # 顶部：服务器切换器
         self.headerRow = QHBoxLayout()
         self.headerRow.addStretch(1)
-        
-        # 把 serverPivot 放入一个 QFrame 中，并赋予半透明黑色背景底座，防止因为亮色壁纸看不清字
-        self.serverPivotContainer = QFrame(self)
-        self.serverPivotContainer.setStyleSheet("""
-            QFrame {
-                background-color: rgba(0, 0, 0, 0.5);
-                border-radius: 8px;
-            }
-        """)
-        self.serverPivotLayout = QHBoxLayout(self.serverPivotContainer)
-        self.serverPivotLayout.setContentsMargins(6, 6, 6, 6)
 
-        self.serverPivot = SegmentedWidget(self.serverPivotContainer)
+        self.serverPivot = SegmentedWidget(self.rightContent)
 
         # 添加带有真实图标的 Server Item
         self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
         self.serverPivot.addItem('bilibili', 'Bilibili 服务器', self.on_server_switched, QIcon(BSERVER_ICON))
         
-        self.serverPivotLayout.addWidget(self.serverPivot)
-        self.headerRow.addWidget(self.serverPivotContainer)
+        # 为了让右侧的 SegmentedWidget 更美观，我们可以增加一点内间距并稍微修改它的层级表现
+        self.serverPivot.setStyleSheet("""
+            SegmentedWidget {
+                background-color: rgba(0, 0, 0, 0.4);
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
+
+        self.headerRow.addWidget(self.serverPivot)
+        self.rightLayout.addLayout(self.headerRow)  # 将 headerRow 添加到右侧主布局中
         self.rightLayout.addStretch(1)
         self.watermarkLayout = QHBoxLayout()
         self.watermark = QLabel("RHODES ISLAND", self)
