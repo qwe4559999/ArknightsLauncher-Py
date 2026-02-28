@@ -1,0 +1,29 @@
+# 虚拟环境
+.venv/
+env/
+venv/
+ENV/
+
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / 编辑器配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 本地个人配置备份或缓存 (如果有)
+config.json
+AccountBackups/
+
+# 打包文件
+build/
+dist/
+*.spec
+
+# OS 系统文件
+.DS_Store
+Thumbs.db
