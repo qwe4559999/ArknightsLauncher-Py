@@ -13,7 +13,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QPushButton,
-    QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy
+    QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy, QSystemTrayIcon, QMenu
 )
 from qfluentwidgets import (
     SubtitleLabel, setTheme, Theme, TitleLabel, CardWidget,
@@ -36,6 +36,8 @@ ACCOUNTS_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2', 'Accou
 OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
+
+VERSION = 'v1.1.0'
 
 # ================= 日志系统 =================
 LOG_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2')
@@ -170,6 +172,9 @@ class AnimatedStartButton(QPushButton):
         self.anim.valueChanged.connect(self.update)
         self.current_val = 0.0
         
+        self.base_color = QColor(0, 152, 234, 255)
+        self.hover_color = QColor(51, 161, 244, 255)
+        self.press_color = QColor(0, 123, 191, 255)
         self.start_bg = QColor(0, 152, 234, 255)
         self.end_bg = QColor(0, 152, 234, 255)
 
@@ -202,11 +207,11 @@ class AnimatedStartButton(QPushButton):
         self.start_bg = lerp_color(self.start_bg, self.end_bg, cur_val)
 
         if self.is_pressed:
-            self.end_bg = QColor(0, 123, 191, 255)
+            self.end_bg = self.press_color
         elif self.is_hover:
-            self.end_bg = QColor(51, 161, 244, 255)
+            self.end_bg = self.hover_color
         else:
-            self.end_bg = QColor(0, 152, 234, 255)
+            self.end_bg = self.base_color
 
         self.anim.stop()
         self.anim.setStartValue(0.0)
@@ -231,6 +236,22 @@ class AnimatedStartButton(QPushButton):
         painter.setPen(QColor(255, 255, 255, 255))
         painter.setFont(self.font())
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+
+    def set_server_theme(self, server):
+        """切换服务器主题色"""
+        if server == 'official':
+            self.base_color = QColor(0, 152, 234, 255)
+            self.hover_color = QColor(51, 161, 244, 255)
+            self.press_color = QColor(0, 123, 191, 255)
+            self.setText(' 启动官服  START')
+        else:
+            self.base_color = QColor(240, 116, 130, 255)
+            self.hover_color = QColor(251, 143, 155, 255)
+            self.press_color = QColor(210, 90, 105, 255)
+            self.setText(' 启动B服  START')
+        self.start_bg = self.base_color
+        self.end_bg = self.base_color
+        self.update()
 
 class InputDialog(MessageBoxBase):
     def __init__(self, parent=None):
@@ -342,9 +363,9 @@ class ModernArknightsLauncher(FramelessWindow):
     def __init__(self):
         super().__init__()
         self.config = load_config()
+        self._config_dirty = False
         self.initUI()
         self.initWindow()
-        self.refresh_accounts_list()
         
         # 在界面初始化完成后检查是否需要首次配置指南
         QTimer.singleShot(100, self.check_first_run)
@@ -364,6 +385,15 @@ class ModernArknightsLauncher(FramelessWindow):
 
         # 自定义暗色无边框标题栏
         self.setTitleBar(MSFluentTitleBar(self))
+
+        # 系统托盘图标
+        self.trayIcon = QSystemTrayIcon(QIcon(OFFICIAL_ICON), self)
+        trayMenu = QMenu()
+        trayMenu.addAction("显示主窗口", self.showNormal)
+        trayMenu.addAction("退出启动器", self.quit_app)
+        self.trayIcon.setContextMenu(trayMenu)
+        self.trayIcon.activated.connect(self.on_tray_activated)
+        self.trayIcon.show()
 
         # 强制暗黑流利风格
         setTheme(Theme.DARK)
@@ -463,7 +493,13 @@ class ModernArknightsLauncher(FramelessWindow):
         self.btnSettings.setToolTip("全局设置")
         self.btnSettings.clicked.connect(self.on_settings_clicked)
         self.navLayout.addWidget(self.btnSettings, 0, Qt.AlignmentFlag.AlignHCenter)
-        
+
+        self.btnAbout = TransparentToolButton(FluentIcon.INFO, self)
+        self.btnAbout.setFixedSize(48, 48)
+        self.btnAbout.setToolTip("关于启动器")
+        self.btnAbout.clicked.connect(self.on_about_clicked)
+        self.navLayout.addWidget(self.btnAbout, 0, Qt.AlignmentFlag.AlignHCenter)
+
         self.mainLayout.addWidget(self.navBar)
 
         # ----------------- 右侧主视窗 (承载壁纸) -----------------
@@ -510,6 +546,11 @@ class ModernArknightsLauncher(FramelessWindow):
         self.infoLayout.setContentsMargins(20, 20, 20, 20)
         self.infoLayout.setSpacing(12)
 
+        # 0. 服务器指示标签
+        self.serverLabel = QLabel("▶ 官方服务器", self)
+        self.serverLabel.setStyleSheet("color: #0098EA; font-weight: bold; font-size: 14px; background: transparent;")
+        self.infoLayout.addWidget(self.serverLabel)
+
         # 1. 账号模块布局
         self.accRow = QHBoxLayout()
         self.accLabel = QLabel("游戏账号", self)
@@ -533,7 +574,18 @@ class ModernArknightsLauncher(FramelessWindow):
         self.accRow.addWidget(self.saveAccBtn)
         self.accRow.addWidget(self.delAccBtn)
         self.infoLayout.addLayout(self.accRow)
-        
+
+        # 账号操作提示
+        self.accHint = QLabel("选中的账号将在启动时自动应用", self)
+        self.accHint.setStyleSheet("color: rgba(255,255,255,0.3); font-size: 11px; background: transparent;")
+        self.infoLayout.addWidget(self.accHint)
+
+        # 分隔线
+        self.separator1 = QFrame(self)
+        self.separator1.setFrameShape(QFrame.Shape.HLine)
+        self.separator1.setStyleSheet("background-color: rgba(255,255,255,0.08); max-height: 1px; border: none;")
+        self.infoLayout.addWidget(self.separator1)
+
         # 2. 工具模块布局
         self.toolsRow = QHBoxLayout()
         self.maaBtn = PushButton('启动 MAA', self, FluentIcon.ROBOT)
@@ -543,6 +595,12 @@ class ModernArknightsLauncher(FramelessWindow):
         self.toolsRow.addWidget(self.maaBtn)
         self.toolsRow.addWidget(self.fixBtn)
         self.infoLayout.addLayout(self.toolsRow)
+
+        # 版本号
+        self.versionLabel = QLabel(VERSION, self)
+        self.versionLabel.setStyleSheet("color: rgba(255,255,255,0.2); font-size: 10px; background: transparent;")
+        self.versionLabel.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.infoLayout.addWidget(self.versionLabel)
 
         # --- 巨型启动按钮（带悬浮色变动画）---
         self.startBtn = AnimatedStartButton(' 启动游戏  START', self)
@@ -575,16 +633,22 @@ class ModernArknightsLauncher(FramelessWindow):
 
     def on_server_switched(self, routeKey):
         self.current_server = routeKey
-        # 持久化上次选择的服务器
+        self._config_dirty = True
         self.config['last_server'] = routeKey
-        save_config(self.config)
-        
+
         if routeKey == 'official':
             self.btnOff.set_active(True)
             self.btnBili.set_active(False)
+            self.serverLabel.setText("▶ 官方服务器")
+            self.serverLabel.setStyleSheet("color: #0098EA; font-weight: bold; font-size: 14px; background: transparent;")
         else:
             self.btnOff.set_active(False)
             self.btnBili.set_active(True)
+            self.serverLabel.setText("▶ Bilibili 服务器")
+            self.serverLabel.setStyleSheet("color: #F07482; font-weight: bold; font-size: 14px; background: transparent;")
+
+        self.startBtn.set_server_theme(routeKey)
+        self.refresh_accounts_list()
 
     # ================= 功能逻辑 =================
     
@@ -594,7 +658,18 @@ class ModernArknightsLauncher(FramelessWindow):
         if not os.path.exists(ACCOUNTS_DIR):
             os.makedirs(ACCOUNTS_DIR)
         for item in os.listdir(ACCOUNTS_DIR):
-            if os.path.isdir(os.path.join(ACCOUNTS_DIR, item)):
+            acc_path = os.path.join(ACCOUNTS_DIR, item)
+            if os.path.isdir(acc_path):
+                # 按服务器归属过滤账号
+                meta_file = os.path.join(acc_path, 'meta.json')
+                if os.path.exists(meta_file):
+                    try:
+                        with open(meta_file, 'r', encoding='utf-8') as f:
+                            meta = json.load(f)
+                        if meta.get('server') and meta['server'] != self.current_server:
+                            continue
+                    except Exception:
+                        pass
                 self.accountCombo.addItem(item)
                 
     def on_save_account(self):
@@ -618,7 +693,11 @@ class ModernArknightsLauncher(FramelessWindow):
                 shutil.rmtree(acc_save_path, ignore_errors=True)
                 
             os.makedirs(acc_save_path, exist_ok=True)
-            
+
+            # 保存服务器归属元数据
+            with open(os.path.join(acc_save_path, 'meta.json'), 'w', encoding='utf-8') as f:
+                json.dump({'server': self.current_server}, f, ensure_ascii=False)
+
             u8_data = os.path.join(game_path, "U8Data")
             if os.path.exists(u8_data):
                 self.copy_tree_overwrite(u8_data, os.path.join(acc_save_path, "U8Data"))
@@ -661,7 +740,7 @@ class ModernArknightsLauncher(FramelessWindow):
             InfoBar.error('未配置!', '请先点击左下角设置游戏根目录。', position=InfoBarPosition.TOP, parent=self)
             return
 
-        msgBox = MessageBox('修复确认', '是否要强制执行 记忆模糊修复？\n这将关闭游戏并利用初始官方资源覆盖所有冲突客户端文件。', self)
+        msgBox = MessageBox('修复确认', '是否要执行登录数据重置？\n\n• 关闭正在运行的游戏进程\n• 清除已保存的登录状态 (U8Data / sdkdata)\n• 使用原始客户端文件覆盖冲突文件\n\n⚠ 执行后需要重新登录游戏账号。', self)
         if msgBox.exec():
             self.kill_process("Arknights.exe")
             try:
@@ -701,6 +780,16 @@ class ModernArknightsLauncher(FramelessWindow):
             InfoBar.error('未配置!', '请先点击左下角设置游戏根目录。', position=InfoBarPosition.TOP, duration=3000, parent=self)
             return
 
+        # 启动确认
+        server_name = '官服' if self.current_server == 'official' else 'B服'
+        acc_text = self.accountCombo.currentText()
+        summary = f'即将以【{server_name}】模式启动游戏。'
+        if acc_text and acc_text != "默认 (不覆盖)":
+            summary += f'\n将加载账号预设「{acc_text}」。'
+        summary += '\n\n此操作会覆盖游戏目录中的部分文件，是否继续？'
+        if not MessageBox('启动确认', summary, self).exec():
+            return
+
         self.kill_process("Arknights.exe")
 
         try:
@@ -738,8 +827,8 @@ class ModernArknightsLauncher(FramelessWindow):
             exe_path = os.path.join(game_path, "Arknights.exe")
             if os.path.exists(exe_path):
                 ctypes.windll.shell32.ShellExecuteW(None, "runas", exe_path, None, game_path, 1)
-                InfoBar.success('正在进入游戏', f'模块注入成功，正在拉起游戏终端，启动器即将关闭...', position=InfoBarPosition.TOP, duration=2000, parent=self)
-                QTimer.singleShot(1500, self.close)
+                InfoBar.success('正在进入游戏', '模块注入成功，正在拉起游戏终端...', position=InfoBarPosition.TOP, duration=2000, parent=self)
+                QTimer.singleShot(1500, self._minimize_to_tray)
             else:
                 InfoBar.error('错误', '在游戏目录下未找到 Arknights.exe，请检查游戏是否损坏！', position=InfoBarPosition.TOP, parent=self)
 
@@ -766,6 +855,49 @@ class ModernArknightsLauncher(FramelessWindow):
                 self.copy_tree_overwrite(s, d)
             else:
                 shutil.copy2(s, d)
+
+    # ================= 关于 / 托盘 / 退出 =================
+
+    def on_about_clicked(self):
+        MessageBox(
+            f'关于 Arknights Launcher {VERSION}',
+            '明日方舟 PC 端官服 / B服 切换启动器\n\n'
+            '功能特性:\n'
+            '• 一键切换官服 / Bilibili 服务器\n'
+            '• 多账号预设保存与加载\n'
+            '• MAA 辅助快速启动\n'
+            '• 客户端登录数据修复\n\n'
+            '项目地址: github.com/qwe4559999/ArknightsLauncher-Py\n'
+            f'版本: {VERSION}',
+            self
+        ).exec()
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.showNormal()
+            self.activateWindow()
+
+    def _minimize_to_tray(self):
+        self.hide()
+        self.trayIcon.showMessage(
+            'Arknights Launcher',
+            '启动器已最小化到系统托盘，双击图标可恢复窗口。',
+            QSystemTrayIcon.MessageIcon.Information,
+            2000
+        )
+
+    def quit_app(self):
+        if self._config_dirty:
+            save_config(self.config)
+        self.trayIcon.hide()
+        QApplication.quit()
+
+    def closeEvent(self, e):
+        if self._config_dirty:
+            save_config(self.config)
+        if hasattr(self, 'trayIcon'):
+            self.trayIcon.hide()
+        super().closeEvent(e)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
