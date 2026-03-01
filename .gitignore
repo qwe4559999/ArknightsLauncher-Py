@@ -24,6 +24,26 @@ build/
 dist/
 *.spec
 
+# 开发调试临时脚本和备份
+fix*.py
+patch*.py
+rebuild*.py
+recover*.py
+modify*.py
+do_*.py
+dump*.py
+layout_fix*.py
+rerun_*.py
+test_*.py
+check_*.py
+final_fixes.py
+dumped_strings.txt
+*.patch
+main.py.rec*
+main.py.recovered
+class_list.txt
+git_history.txt
+
 # OS 系统文件
 .DS_Store
 Thumbs.db

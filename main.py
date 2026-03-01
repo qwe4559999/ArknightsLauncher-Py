@@ -5,19 +5,23 @@ import shutil
 import psutil
 import subprocess
 import ctypes
+from PyQt6.QtWidgets import QToolButton, QPushButton
+from PyQt6.QtCore import QVariantAnimation, QRect
+from PyQt6.QtGui import QPainterPath, QPen
+from qfluentwidgets import ToolTipFilter, ToolTipPosition
 
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QBrush, QAction
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-    QFileDialog, QFrame, QGraphicsDropShadowEffect
+    QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy
 )
 from qfluentwidgets import (
     SubtitleLabel, setTheme, Theme, TitleLabel, CardWidget, 
     IconWidget, BodyLabel, PushButton, FluentIcon, PrimaryPushButton,
     MessageBox, InfoBar, InfoBarPosition, LineEdit, ToolButton,
     ComboBox, MessageBoxBase, SegmentedWidget, TransparentDropDownPushButton, RoundMenu, Action,
-    MSFluentTitleBar
+    TransparentToolButton, MSFluentTitleBar
 )
 from qframelesswindow import FramelessWindow
 
@@ -33,6 +37,200 @@ ACCOUNTS_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2', 'Accou
 OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
+
+class AnimatedServerButton(QToolButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_active = False
+        self.is_hover = False
+        
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(250)
+        self.anim.valueChanged.connect(self.update)
+        
+        self.current_val = 0.0
+        
+        self.start_border = QColor(255, 255, 255, 0)
+        self.start_bg = QColor(255, 255, 255, 0)
+        self.end_border = QColor(255, 255, 255, 0)
+        self.end_bg = QColor(255, 255, 255, 0)
+
+        # Clear any style that might interfere with paintEvent
+        self.setStyleSheet("QToolButton { background: transparent; border: none; outline: none; }")
+
+    def set_active(self, active):
+        if self.is_active == active: return
+        self.is_active = active
+        self._start_anim()
+
+    def enterEvent(self, e):
+        super().enterEvent(e)
+        self.is_hover = True
+        self._start_anim()
+
+    def leaveEvent(self, e):
+        super().leaveEvent(e)
+        self.is_hover = False
+        self._start_anim()
+
+    def mousePressEvent(self, e):
+        super().mousePressEvent(e)
+        self.update()
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        self.update()
+
+    def _start_anim(self):
+        cur_val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else self.current_val
+        if cur_val is None: cur_val = 1.0 
+        
+        cur_bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * cur_val)
+        cur_bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * cur_val)
+        cur_bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * cur_val)
+        cur_bg_a = int(self.start_bg.alpha() + (self.end_bg.alpha() - self.start_bg.alpha()) * cur_val)
+        
+        cur_bd_r = int(self.start_border.red() + (self.end_border.red() - self.start_border.red()) * cur_val)
+        cur_bd_g = int(self.start_border.green() + (self.end_border.green() - self.start_border.green()) * cur_val)
+        cur_bd_b = int(self.start_border.blue() + (self.end_border.blue() - self.start_border.blue()) * cur_val)
+        cur_bd_a = int(self.start_border.alpha() + (self.end_border.alpha() - self.start_border.alpha()) * cur_val)
+
+        self.start_bg = QColor(cur_bg_r, cur_bg_g, cur_bg_b, cur_bg_a)
+        self.start_border = QColor(cur_bd_r, cur_bd_g, cur_bd_b, cur_bd_a)
+        
+        if self.is_active:
+            self.end_bg = QColor(255, 255, 255, 25)
+            self.end_border = QColor(255, 255, 255, 255)
+        elif self.is_hover:
+            self.end_bg = QColor(255, 255, 255, 10)
+            self.end_border = QColor(160, 160, 160, 255)
+        else:
+            self.end_bg = QColor(255, 255, 255, 0)
+            self.end_border = QColor(255, 255, 255, 0)
+
+        self.anim.stop()
+        self.anim.setStartValue(0.0)
+        self.anim.setEndValue(1.0)
+        self.anim.start()
+
+    def paintEvent(self, e):
+        val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else 1.0
+        self.current_val = val
+        if val is None: val = 1.0
+
+        bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * val)
+        bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * val)
+        bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * val)
+        bg_a = int(self.start_bg.alpha() + (self.end_bg.alpha() - self.start_bg.alpha()) * val)
+
+        bc_r = int(self.start_border.red() + (self.end_border.red() - self.start_border.red()) * val)
+        bc_g = int(self.start_border.green() + (self.end_border.green() - self.start_border.green()) * val)
+        bc_b = int(self.start_border.blue() + (self.end_border.blue() - self.start_border.blue()) * val)
+        bc_a = int(self.start_border.alpha() + (self.end_border.alpha() - self.start_border.alpha()) * val)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pen = QPen(QColor(bc_r, bc_g, bc_b, bc_a))
+        pen.setWidth(2)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        
+        painter.setPen(pen)
+        painter.setBrush(QColor(bg_r, bg_g, bg_b, bg_a))
+        painter.drawRoundedRect(rect, 12, 12)
+
+        icon = self.icon()
+        if not icon.isNull():
+            icon_size = self.iconSize()
+            icon_rect = QRect(
+                (self.width() - icon_size.width()) // 2,
+                (self.height() - icon_size.height()) // 2,
+                icon_size.width(),
+                icon_size.height()
+            )
+            icon.paint(painter, icon_rect)
+
+
+class AnimatedStartButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.is_hover = False
+        self.is_pressed = False
+        
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(200)
+        self.anim.valueChanged.connect(self.update)
+        self.current_val = 0.0
+        
+        self.start_bg = QColor(0, 152, 234, 255)
+        self.end_bg = QColor(0, 152, 234, 255)
+
+        self.setStyleSheet("QPushButton { background-color: transparent; border: none; outline: none; }")
+
+    def enterEvent(self, e):
+        super().enterEvent(e)
+        self.is_hover = True
+        self._start_anim()
+
+    def leaveEvent(self, e):
+        super().leaveEvent(e)
+        self.is_hover = False
+        self._start_anim()
+
+    def mousePressEvent(self, e):
+        super().mousePressEvent(e)
+        self.is_pressed = True
+        self._start_anim()
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        self.is_pressed = False
+        self._start_anim()
+
+    def _start_anim(self):
+        cur_val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else self.current_val
+        if cur_val is None: cur_val = 1.0
+        
+        cur_bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * cur_val)
+        cur_bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * cur_val)
+        cur_bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * cur_val)
+        
+        self.start_bg = QColor(cur_bg_r, cur_bg_g, cur_bg_b, 255)
+
+        if self.is_pressed:
+            self.end_bg = QColor(0, 123, 191, 255)
+        elif self.is_hover:
+            self.end_bg = QColor(51, 161, 244, 255)
+        else:
+            self.end_bg = QColor(0, 152, 234, 255)
+
+        self.anim.stop()
+        self.anim.setStartValue(0.0)
+        self.anim.setEndValue(1.0)
+        self.anim.start()
+
+    def paintEvent(self, e):
+        val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else 1.0
+        self.current_val = val
+        if val is None: val = 1.0
+
+        bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * val)
+        bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * val)
+        bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * val)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(bg_r, bg_g, bg_b, 255))
+        rect = self.rect()
+        painter.drawRoundedRect(rect, 12, 12)
+
+        # Draw text
+        painter.setPen(QColor(255, 255, 255, 255))
+        painter.setFont(self.font())
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
 
 class InputDialog(MessageBoxBase):
     def __init__(self, parent=None):
@@ -144,8 +342,8 @@ class ModernArknightsLauncher(FramelessWindow):
     def __init__(self):
         super().__init__()
         self.config = load_config()
-        self.initWindow()
         self.initUI()
+        self.initWindow()
         self.refresh_accounts_list()
         
         # 在界面初始化完成后检查是否需要首次配置指南
@@ -176,42 +374,41 @@ class ModernArknightsLauncher(FramelessWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         # 当窗口改变大小时，同步拉伸右侧内部的顶部抗反光层
-        if hasattr(self, 'titleShadow'):
-            self.titleShadow.setGeometry(0, 0, self.width(), 60)
+        if hasattr(self, 'titleShadow') and hasattr(self, 'rightContent'):
+            self.titleShadow.setGeometry(0, 0, self.rightContent.width(), 60)
 
     def update_background(self):
         bg_path = self.config.get('bg_path', os.path.join(BASE_DIR, 'resources', 'bg.png'))
-        # 转换为正斜杠并确保路径存在以正常渲染，如果不存在退回空实现或默认深色
         bg_url = bg_path.replace("\\", "/") if os.path.exists(bg_path) else "none"
         bg_css = f"border-image: url({bg_url}) 0 0 0 0 stretch stretch;" if bg_url != "none" else ""
 
-        # 动态根据壁纸比例调整窗口宽度以防压缩 (将高度固定在 550)
         if os.path.exists(bg_path):
             pixmap = QPixmap(bg_path)
             if not pixmap.isNull():
                 ratio = pixmap.width() / pixmap.height()
                 target_height = 550
-                total_width = target_height * ratio
+                # 取消了外边距，所以右侧宽度 = 总宽 - 边栏宽
+                total_width = int(target_height * ratio) + 68
                 total_width = max(900, min(total_width, 1600))
-                self.resize(int(total_width), target_height)
+                self.resize(total_width, target_height)
 
         self.setStyleSheet(f"""
             ModernArknightsLauncher {{
-                background-color: #1a1a1a;
-                {bg_css}
-                border-radius: 12px;
+                background-color: transparent;
             }}
-            #LeftSidebar {{
-                background-color: rgba(30, 30, 30, 0.85);
-                border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+            #NavBar {{
+                background-color: #1a1a1a;
+                border-top-left-radius: 12px;
+                border-bottom-left-radius: 12px;
             }}
             #RightContent {{
-                background: transparent;
+                {bg_css}
+                background-color: #2b2b2b;
+                border-top-right-radius: 12px;
+                border-bottom-right-radius: 12px;
             }}
             #TitleShadow {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 0.7), stop:1 rgba(0, 0, 0, 0));
-                border-top-left-radius: 12px;
                 border-top-right-radius: 12px;
             }}
             #WatermarkLabel {{
@@ -220,147 +417,166 @@ class ModernArknightsLauncher(FramelessWindow):
                 font-weight: bold;
                 background: transparent;
             }}
+            #InfoPanel {{
+                background-color: rgba(0, 0, 0, 0.6);
+                border-radius: 12px;
+            }}
         """)
 
     def initUI(self):
+        # 去除所有外边距，让 NavBar 和 RightContent 充满窗口
         self.mainLayout = QHBoxLayout(self)
-        self.mainLayout.setContentsMargins(40, 60, 40, 40)
-        self.mainLayout.setSpacing(40)
+        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setSpacing(0)
 
-        # ----------------- 全局抗反光层 -----------------
-        self.titleShadow = QFrame(self)
+        # ----------------- 独立左侧黑色导航栏 -----------------
+        self.navBar = QFrame(self)
+        self.navBar.setObjectName("NavBar")
+        self.navBar.setFixedWidth(68)
+        self.navLayout = QVBoxLayout(self.navBar)
+        self.navLayout.setContentsMargins(0, 30, 0, 20)
+        
+        # 官服 / B服 切换按钮（带边框高亮动效）
+        self.btnOff = AnimatedServerButton(self.navBar)
+        self.btnOff.setIcon(QIcon(OFFICIAL_ICON))
+        self.btnOff.setIconSize(QSize(46, 46))
+        self.btnOff.setFixedSize(60, 60)
+        self.btnOff.setToolTip("明日方舟（官服）")
+        self.btnOff.installEventFilter(ToolTipFilter(self.btnOff, 500, ToolTipPosition.RIGHT))
+        self.btnOff.clicked.connect(lambda: self.on_server_switched('official'))
+
+        self.btnBili = AnimatedServerButton(self.navBar)
+        self.btnBili.setIcon(QIcon(BSERVER_ICON))
+        self.btnBili.setIconSize(QSize(46, 46))
+        self.btnBili.setFixedSize(60, 60)
+        self.btnBili.setToolTip("明日方舟（B服）")
+        self.btnBili.installEventFilter(ToolTipFilter(self.btnBili, 500, ToolTipPosition.RIGHT))
+        self.btnBili.clicked.connect(lambda: self.on_server_switched('bilibili'))
+
+        self.navLayout.addWidget(self.btnOff, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.navLayout.addSpacing(16)
+        self.navLayout.addWidget(self.btnBili, 0, Qt.AlignmentFlag.AlignHCenter)
+        
+        self.navLayout.addStretch()
+        
+        # 底部设置按钮
+        self.btnSettings = TransparentToolButton(FluentIcon.SETTING, self)
+        self.btnSettings.setFixedSize(48, 48)
+        self.btnSettings.setToolTip("全局设置")
+        self.btnSettings.clicked.connect(self.on_settings_clicked)
+        self.navLayout.addWidget(self.btnSettings, 0, Qt.AlignmentFlag.AlignHCenter)
+        
+        self.mainLayout.addWidget(self.navBar)
+
+        # ----------------- 右侧主视窗 (承载壁纸) -----------------
+        self.rightContent = QFrame(self)
+        self.rightContent.setObjectName("RightContent")
+        self.rightLayout = QVBoxLayout(self.rightContent)
+        self.rightLayout.setContentsMargins(0, 0, 0, 0)
+        self.rightLayout.setSpacing(0)
+        
+        # 顶部防反光层 (绝对布局以悬浮在背景上)
+        self.titleShadow = QFrame(self.rightContent)
         self.titleShadow.setObjectName("TitleShadow")
         self.titleShadow.setGeometry(0, 0, 2000, 60)
-        self.titleShadow.lower() # 放到背景和内容之间
-
-        # ----------------- 悬浮左侧边栏 (透明/功能区) -----------------
-        self.sidebar = QFrame()
-        self.sidebar.setObjectName("LeftSidebar")
-        self.sidebar.setFixedWidth(280)
-        self.sidebarLayout = QVBoxLayout(self.sidebar)
-        self.sidebarLayout.setContentsMargins(20, 30, 20, 30)
-        self.sidebarLayout.setSpacing(15)
-
-        # APP 标题部分
-        self.titleLayout = QHBoxLayout()
-        self.iconLabel = IconWidget(OFFICIAL_ICON, self)
-        self.iconLabel.setFixedSize(36, 36)
-        self.titleLabel = TitleLabel("Arknights", self)
-        self.titleLabel.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
-        self.titleLayout.addWidget(self.iconLabel)
-        self.titleLayout.addWidget(self.titleLabel)
-        self.titleLayout.addStretch()
-        self.sidebarLayout.addLayout(self.titleLayout)
-
-        self.sidebarLayout.addSpacing(20)
-
-        # 服务器选择区
-        self.serverLabel = SubtitleLabel("服务器选择", self)
-        self.sidebarLayout.addWidget(self.serverLabel)
-
-        self.serverRow = QHBoxLayout()
-        self.serverPivot = SegmentedWidget(self)
-        self.serverPivot.addItem('official', '官方服务器', self.on_server_switched, QIcon(OFFICIAL_ICON))
-        self.serverPivot.addItem('bilibili', 'Bilibili 服', self.on_server_switched, QIcon(BSERVER_ICON))
-        self.serverRow.addWidget(self.serverPivot)
-        self.serverRow.addStretch(1)
-        self.sidebarLayout.addLayout(self.serverRow)
-
-        self.sidebarLayout.addSpacing(20)
-
-        # 账号管理区
-        self.accLabel = SubtitleLabel("当前账号", self)
-        self.sidebarLayout.addWidget(self.accLabel)
-
-        self.accRow = QHBoxLayout()
-        self.accountCombo = ComboBox(self)
-        self.accountCombo.setMinimumWidth(180)
-
-        self.saveAccBtn = ToolButton(FluentIcon.SAVE, self)
-        self.saveAccBtn.setToolTip("将当前游戏的登录状态保存为新账号")
-        self.saveAccBtn.clicked.connect(self.on_save_account)
-
-        self.accRow.addWidget(self.accountCombo)
-        self.accRow.addWidget(self.saveAccBtn)
-        self.sidebarLayout.addLayout(self.accRow)
-
-        self.sidebarLayout.addSpacing(20)
-
-        # 实用工具区
-        self.toolsLabel = SubtitleLabel("系统工具", self)
-        self.sidebarLayout.addWidget(self.toolsLabel)
-
-        self.maaBtn = PushButton('启动 MAA', self, FluentIcon.ROBOT)
-        self.maaBtn.clicked.connect(self.on_maa_clicked)
-        if os.path.exists(MAA_ICON):
-            self.maaBtn.setIcon(QIcon(MAA_ICON))
-        self.sidebarLayout.addWidget(self.maaBtn)
-
-        self.fixBtn = PushButton('修复记忆模糊', self, FluentIcon.SYNC)
-        self.fixBtn.clicked.connect(self.on_fix_clicked)
-        self.sidebarLayout.addWidget(self.fixBtn)
-
-        self.sidebarLayout.addStretch(1)
-
-        # 底部设置区
-        self.settingsBtn = PushButton('全局设置', self, FluentIcon.SETTING)
-        self.settingsBtn.clicked.connect(self.on_settings_clicked)
-        self.sidebarLayout.addWidget(self.settingsBtn)
-
-        self.mainLayout.addWidget(self.sidebar)
-
-        # ----------------- 右侧主视窗 (背景 + 大按钮) -----------------
-        self.rightContent = QVBoxLayout()
-        self.rightContent.setContentsMargins(0, 0, 0, 0)
-        self.rightContent.addStretch(1)
-
+        self.titleShadow.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        
+        self.contentArea = QVBoxLayout()
+        self.contentArea.setContentsMargins(30, 10, 30, 30)
+        self.contentArea.addStretch(1)
+        
+        # 水印
         self.watermarkLayout = QHBoxLayout()
         self.watermark = QLabel("RHODES ISLAND", self)
         self.watermark.setObjectName("WatermarkLabel")
-        self.watermark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.watermarkLayout.addStretch(1)
         self.watermarkLayout.addWidget(self.watermark)
         self.watermarkLayout.addStretch(1)
-        self.rightContent.addLayout(self.watermarkLayout)
-        self.rightContent.addStretch(1)
+        self.contentArea.addLayout(self.watermarkLayout)
+        self.contentArea.addStretch(1)
 
-        # 底部：巨型启动按钮
-        self.startBtnLayout = QHBoxLayout()
-        self.startBtnLayout.addStretch(1)
+        # 底部组件 (右侧对齐的垂直统排面板)
+        self.bottomLayout = QHBoxLayout()
+        self.bottomLayout.addStretch(1)  # 左侧留空，把所有东西推到右边
 
+        self.rightPlayLayout = QVBoxLayout()
+        self.rightPlayLayout.setSpacing(10)
+
+        # 悬浮工具与账号信息面板
+        self.infoPanel = QFrame()
+        self.infoPanel.setObjectName("InfoPanel")
+        self.infoPanel.setFixedWidth(380)
+        self.infoPanel.setStyleSheet("QFrame#InfoPanel { background-color: rgba(30,30,30,0.85); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); }")
+        
+        self.infoLayout = QVBoxLayout(self.infoPanel)
+        self.infoLayout.setContentsMargins(20, 20, 20, 20)
+        self.infoLayout.setSpacing(12)
+
+        # 1. 账号模块布局
+        self.accRow = QHBoxLayout()
+        self.accLabel = QLabel("游戏账号", self)
+        self.accLabel.setStyleSheet("color: #cccccc; font-weight: bold; font-size: 13px; background: transparent;")
+        
+        self.accountCombo = ComboBox(self)
+        self.accountCombo.setMinimumWidth(160)
+        self.accountCombo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        
+        self.saveAccBtn = ToolButton(FluentIcon.SAVE, self)
+        self.saveAccBtn.setToolTip("保存当前状态为新账号")
+        self.saveAccBtn.clicked.connect(self.on_save_account)
+        
+        self.accRow.addWidget(self.accLabel)
+        self.accRow.addStretch(1)
+        self.accRow.addWidget(self.accountCombo)
+        self.accRow.addWidget(self.saveAccBtn)
+        self.infoLayout.addLayout(self.accRow)
+        
+        # 2. 工具模块布局
+        self.toolsRow = QHBoxLayout()
+        self.maaBtn = PushButton('启动 MAA', self, FluentIcon.ROBOT)
+        self.maaBtn.clicked.connect(self.on_maa_clicked)
+        self.fixBtn = PushButton('修复清理', self, FluentIcon.SYNC)
+        self.fixBtn.clicked.connect(self.on_fix_clicked)
+        self.toolsRow.addWidget(self.maaBtn)
+        self.toolsRow.addWidget(self.fixBtn)
+        self.infoLayout.addLayout(self.toolsRow)
+
+        # --- 巨型启动按钮 ---
         self.startBtn = PrimaryPushButton(' 启动游戏  START', self, FluentIcon.PLAY)
-        self.startBtn.setFixedSize(300, 70)
-        self.startBtn.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        self.startBtn.setFixedSize(380, 80)
+        self.startBtn.setFont(QFont("Microsoft YaHei", 20, QFont.Weight.Bold))
         self.startBtn.clicked.connect(self.on_start_game)
 
-        # 增加按钮阴影展现质感
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setColor(QColor(0, 0, 0, 80))
         shadow.setOffset(0, 5)
         self.startBtn.setGraphicsEffect(shadow)
 
-        self.startBtnLayout.addWidget(self.startBtn)
-        self.rightContent.addLayout(self.startBtnLayout)
+        # 将综合面板和启动按钮加入右侧竖向布局
+        self.rightPlayLayout.addWidget(self.infoPanel, 0, Qt.AlignmentFlag.AlignRight)
+        self.rightPlayLayout.addWidget(self.startBtn, 0, Qt.AlignmentFlag.AlignRight)
 
-        self.mainLayout.addLayout(self.rightContent)
+        self.bottomLayout.addLayout(self.rightPlayLayout)
+        self.contentArea.addLayout(self.bottomLayout)
+        self.rightLayout.addLayout(self.contentArea)
+        
+        self.mainLayout.addWidget(self.rightContent)
 
         # 默认选中官服
         self.current_server = 'official'
-        self.serverPivot.setCurrentItem('official')
         self.on_server_switched('official')
 
-        # 核心修复：将背景顶栏暗影层、标题栏及控制按钮提升到渲染的最上层，防止被主体背景色覆盖
-        if hasattr(self, 'titleShadow'):
-            self.titleShadow.raise_()
         self.titleBar.raise_()
 
     def on_server_switched(self, routeKey):
         self.current_server = routeKey
         if routeKey == 'official':
-            self.startBtn.setIcon(QIcon(OFFICIAL_ICON))
+            if hasattr(self, 'btnOff'): self.btnOff.set_active(True)
+            if hasattr(self, 'btnBili'): self.btnBili.set_active(False)
         else:
-            self.startBtn.setIcon(QIcon(BSERVER_ICON))
+            if hasattr(self, 'btnOff'): self.btnOff.set_active(False)
+            if hasattr(self, 'btnBili'): self.btnBili.set_active(True)
 
     # ================= 功能逻辑 =================
     
