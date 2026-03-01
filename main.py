@@ -37,7 +37,7 @@ OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
 
-VERSION = 'v1.1.0'
+VERSION = 'v1.1.1'
 
 # ================= 日志系统 =================
 LOG_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2')
@@ -416,7 +416,7 @@ class ModernArknightsLauncher(FramelessWindow):
                 ratio = pixmap.width() / pixmap.height()
                 target_height = 550
                 # 取消了外边距，所以右侧宽度 = 总宽 - 边栏宽
-                total_width = int(target_height * ratio) + 68
+                total_width = int(target_height * ratio) + 80
                 total_width = max(900, min(total_width, 1600))
                 self.resize(total_width, target_height)
 
@@ -460,9 +460,9 @@ class ModernArknightsLauncher(FramelessWindow):
         # ----------------- 独立左侧黑色导航栏 -----------------
         self.navBar = QFrame(self)
         self.navBar.setObjectName("NavBar")
-        self.navBar.setFixedWidth(68)
+        self.navBar.setFixedWidth(80)
         self.navLayout = QVBoxLayout(self.navBar)
-        self.navLayout.setContentsMargins(0, 30, 0, 20)
+        self.navLayout.setContentsMargins(0, 30, 0, 16)
         
         # 官服 / B服 切换按钮（带边框高亮动效）
         self.btnOff = AnimatedServerButton(self.navBar)
@@ -486,16 +486,27 @@ class ModernArknightsLauncher(FramelessWindow):
         self.navLayout.addWidget(self.btnBili, 0, Qt.AlignmentFlag.AlignHCenter)
         
         self.navLayout.addStretch()
-        
+
+        # 底部分隔线
+        self.navSep = QFrame(self.navBar)
+        self.navSep.setFrameShape(QFrame.Shape.HLine)
+        self.navSep.setStyleSheet("background-color: rgba(255,255,255,0.06); max-height: 1px; border: none;")
+        self.navSep.setFixedWidth(48)
+        self.navLayout.addWidget(self.navSep, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.navLayout.addSpacing(8)
+
         # 底部设置按钮
         self.btnSettings = TransparentToolButton(FluentIcon.SETTING, self)
-        self.btnSettings.setFixedSize(48, 48)
+        self.btnSettings.setFixedSize(40, 40)
+        self.btnSettings.setIconSize(QSize(18, 18))
         self.btnSettings.setToolTip("全局设置")
         self.btnSettings.clicked.connect(self.on_settings_clicked)
         self.navLayout.addWidget(self.btnSettings, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.navLayout.addSpacing(2)
 
         self.btnAbout = TransparentToolButton(FluentIcon.INFO, self)
-        self.btnAbout.setFixedSize(48, 48)
+        self.btnAbout.setFixedSize(40, 40)
+        self.btnAbout.setIconSize(QSize(18, 18))
         self.btnAbout.setToolTip("关于启动器")
         self.btnAbout.clicked.connect(self.on_about_clicked)
         self.navLayout.addWidget(self.btnAbout, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -782,39 +793,49 @@ class ModernArknightsLauncher(FramelessWindow):
 
         # 启动确认
         server_name = '官服' if self.current_server == 'official' else 'B服'
+        detected = self._detect_current_server(game_path)
         acc_text = self.accountCombo.currentText()
-        summary = f'即将以【{server_name}】模式启动游戏。'
+
+        if detected == self.current_server:
+            summary = f'当前游戏文件已是【{server_name}】环境，将直接启动（跳过文件覆盖）。'
+        else:
+            summary = f'即将切换到【{server_name}】模式，需要覆盖游戏目录中的部分文件。'
         if acc_text and acc_text != "默认 (不覆盖)":
             summary += f'\n将加载账号预设「{acc_text}」。'
-        summary += '\n\n此操作会覆盖游戏目录中的部分文件，是否继续？'
+        summary += '\n\n是否继续？'
         if not MessageBox('启动确认', summary, self).exec():
             return
 
         self.kill_process("Arknights.exe")
 
         try:
-            # 文件覆盖逻辑
-            if self.current_server == 'official':
-                res_path = os.path.join(BASE_DIR, 'resources', 'Payload')
-                
-                # 互斥清理 B 服专属文件
-                pc_game_sdk = os.path.join(game_path, "PCGameSDK.dll")
-                bl_platform = os.path.join(game_path, "BLPlatform64")
-                if os.path.exists(pc_game_sdk): os.remove(pc_game_sdk)
-                if os.path.exists(bl_platform): shutil.rmtree(bl_platform, ignore_errors=True)
-            else:
-                res_path = os.path.join(BASE_DIR, 'resources', 'Payload_B')
-                
-                # 互斥清理官服专属文件
-                hg_sdk = os.path.join(game_path, "hgsdk.dll")
-                if os.path.exists(hg_sdk): os.remove(hg_sdk)
+            # 检测当前游戏目录实际服务器状态
+            detected = self._detect_current_server(game_path)
+            need_overlay = (detected != self.current_server)
 
-            # 执行覆盖
-            if os.path.exists(res_path):
-                self.copy_tree_overwrite(res_path, game_path)
+            if need_overlay:
+                # 文件覆盖逻辑 — 仅在服务器切换时执行
+                if self.current_server == 'official':
+                    res_path = os.path.join(BASE_DIR, 'resources', 'Payload')
+                    # 互斥清理 B 服专属文件
+                    pc_game_sdk = os.path.join(game_path, "PCGameSDK.dll")
+                    bl_platform = os.path.join(game_path, "BLPlatform64")
+                    if os.path.exists(pc_game_sdk): os.remove(pc_game_sdk)
+                    if os.path.exists(bl_platform): shutil.rmtree(bl_platform, ignore_errors=True)
+                else:
+                    res_path = os.path.join(BASE_DIR, 'resources', 'Payload_B')
+                    # 互斥清理官服专属文件
+                    hg_sdk = os.path.join(game_path, "hgsdk.dll")
+                    if os.path.exists(hg_sdk): os.remove(hg_sdk)
+
+                if os.path.exists(res_path):
+                    self.copy_tree_overwrite(res_path, game_path)
+                else:
+                    InfoBar.error('资源缺失', f'找不到预配资源包: {res_path}', position=InfoBarPosition.TOP, parent=self)
+                    return
+                logger.info(f'服务器文件已切换: {detected} -> {self.current_server}')
             else:
-                InfoBar.error('资源缺失', f'找不到预配资源包: {res_path}', position=InfoBarPosition.TOP, parent=self)
-                return
+                logger.info(f'当前已是{"官服" if self.current_server == "official" else "B服"}环境，跳过文件覆盖')
 
             # 应用账号预设
             selected_acc = self.accountCombo.currentText()
@@ -844,6 +865,17 @@ class ModernArknightsLauncher(FramelessWindow):
                     proc.kill()
                 except psutil.AccessDenied:
                     pass
+
+    def _detect_current_server(self, game_path):
+        """检测游戏目录当前实际对应的服务器，通过特征文件判断"""
+        has_bilibili = os.path.exists(os.path.join(game_path, 'PCGameSDK.dll'))
+        has_official = os.path.exists(os.path.join(game_path, 'hgsdk.dll'))
+        if has_bilibili and not has_official:
+            return 'bilibili'
+        elif has_official and not has_bilibili:
+            return 'official'
+        # 无法确定或首次使用时，返回 None 强制执行覆盖
+        return None
 
     def copy_tree_overwrite(self, src_dir, dst_dir):
         if not os.path.exists(dst_dir):
