@@ -2,26 +2,25 @@ import sys
 import os
 import json
 import shutil
+import logging
 import psutil
 import subprocess
 import ctypes
-from PyQt6.QtWidgets import QToolButton, QPushButton
-from PyQt6.QtCore import QVariantAnimation, QRect
-from PyQt6.QtGui import QPainterPath, QPen
-from qfluentwidgets import ToolTipFilter, ToolTipPosition
 
-from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QBrush, QAction
+from PyQt6.QtCore import Qt, QSize, QTimer, QVariantAnimation, QRect
+from PyQt6.QtGui import (
+    QIcon, QFont, QPixmap, QPainter, QColor, QBrush, QAction, QPainterPath, QPen
+)
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QPushButton,
     QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy
 )
 from qfluentwidgets import (
-    SubtitleLabel, setTheme, Theme, TitleLabel, CardWidget, 
+    SubtitleLabel, setTheme, Theme, TitleLabel, CardWidget,
     IconWidget, BodyLabel, PushButton, FluentIcon, PrimaryPushButton,
     MessageBox, InfoBar, InfoBarPosition, LineEdit, ToolButton,
     ComboBox, MessageBoxBase, SegmentedWidget, TransparentDropDownPushButton, RoundMenu, Action,
-    TransparentToolButton, MSFluentTitleBar
+    TransparentToolButton, MSFluentTitleBar, ToolTipFilter, ToolTipPosition
 )
 from qframelesswindow import FramelessWindow
 
@@ -38,6 +37,32 @@ OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
 
+# ================= 日志系统 =================
+LOG_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2')
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_PATH = os.path.join(LOG_DIR, 'launcher.log')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_PATH, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('ArknightsLauncher')
+
+# ================= 颜色插值工具 =================
+def lerp_color(c1: QColor, c2: QColor, t: float) -> QColor:
+    """线性插值两个 QColor，t 从 0.0 到 1.0"""
+    return QColor(
+        int(c1.red()   + (c2.red()   - c1.red())   * t),
+        int(c1.green() + (c2.green() - c1.green()) * t),
+        int(c1.blue()  + (c2.blue()  - c1.blue())  * t),
+        int(c1.alpha() + (c2.alpha() - c1.alpha()) * t),
+    )
+
+# ================= 自定义动画组件 =================
 class AnimatedServerButton(QToolButton):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,7 +80,6 @@ class AnimatedServerButton(QToolButton):
         self.end_border = QColor(255, 255, 255, 0)
         self.end_bg = QColor(255, 255, 255, 0)
 
-        # Clear any style that might interfere with paintEvent
         self.setStyleSheet("QToolButton { background: transparent; border: none; outline: none; }")
 
     def set_active(self, active):
@@ -83,20 +107,10 @@ class AnimatedServerButton(QToolButton):
 
     def _start_anim(self):
         cur_val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else self.current_val
-        if cur_val is None: cur_val = 1.0 
-        
-        cur_bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * cur_val)
-        cur_bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * cur_val)
-        cur_bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * cur_val)
-        cur_bg_a = int(self.start_bg.alpha() + (self.end_bg.alpha() - self.start_bg.alpha()) * cur_val)
-        
-        cur_bd_r = int(self.start_border.red() + (self.end_border.red() - self.start_border.red()) * cur_val)
-        cur_bd_g = int(self.start_border.green() + (self.end_border.green() - self.start_border.green()) * cur_val)
-        cur_bd_b = int(self.start_border.blue() + (self.end_border.blue() - self.start_border.blue()) * cur_val)
-        cur_bd_a = int(self.start_border.alpha() + (self.end_border.alpha() - self.start_border.alpha()) * cur_val)
+        if cur_val is None: cur_val = 1.0
 
-        self.start_bg = QColor(cur_bg_r, cur_bg_g, cur_bg_b, cur_bg_a)
-        self.start_border = QColor(cur_bd_r, cur_bd_g, cur_bd_b, cur_bd_a)
+        self.start_bg = lerp_color(self.start_bg, self.end_bg, cur_val)
+        self.start_border = lerp_color(self.start_border, self.end_border, cur_val)
         
         if self.is_active:
             self.end_bg = QColor(255, 255, 255, 25)
@@ -118,26 +132,19 @@ class AnimatedServerButton(QToolButton):
         self.current_val = val
         if val is None: val = 1.0
 
-        bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * val)
-        bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * val)
-        bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * val)
-        bg_a = int(self.start_bg.alpha() + (self.end_bg.alpha() - self.start_bg.alpha()) * val)
-
-        bc_r = int(self.start_border.red() + (self.end_border.red() - self.start_border.red()) * val)
-        bc_g = int(self.start_border.green() + (self.end_border.green() - self.start_border.green()) * val)
-        bc_b = int(self.start_border.blue() + (self.end_border.blue() - self.start_border.blue()) * val)
-        bc_a = int(self.start_border.alpha() + (self.end_border.alpha() - self.start_border.alpha()) * val)
+        bg = lerp_color(self.start_bg, self.end_bg, val)
+        bc = lerp_color(self.start_border, self.end_border, val)
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        pen = QPen(QColor(bc_r, bc_g, bc_b, bc_a))
+        pen = QPen(bc)
         pen.setWidth(2)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         rect = self.rect().adjusted(1, 1, -1, -1)
         
         painter.setPen(pen)
-        painter.setBrush(QColor(bg_r, bg_g, bg_b, bg_a))
+        painter.setBrush(bg)
         painter.drawRoundedRect(rect, 12, 12)
 
         icon = self.icon()
@@ -192,11 +199,7 @@ class AnimatedStartButton(QPushButton):
         cur_val = self.anim.currentValue() if self.anim.state() == QVariantAnimation.State.Running else self.current_val
         if cur_val is None: cur_val = 1.0
         
-        cur_bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * cur_val)
-        cur_bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * cur_val)
-        cur_bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * cur_val)
-        
-        self.start_bg = QColor(cur_bg_r, cur_bg_g, cur_bg_b, 255)
+        self.start_bg = lerp_color(self.start_bg, self.end_bg, cur_val)
 
         if self.is_pressed:
             self.end_bg = QColor(0, 123, 191, 255)
@@ -215,19 +218,16 @@ class AnimatedStartButton(QPushButton):
         self.current_val = val
         if val is None: val = 1.0
 
-        bg_r = int(self.start_bg.red() + (self.end_bg.red() - self.start_bg.red()) * val)
-        bg_g = int(self.start_bg.green() + (self.end_bg.green() - self.start_bg.green()) * val)
-        bg_b = int(self.start_bg.blue() + (self.end_bg.blue() - self.start_bg.blue()) * val)
+        bg = lerp_color(self.start_bg, self.end_bg, val)
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(bg_r, bg_g, bg_b, 255))
+        painter.setBrush(bg)
         rect = self.rect()
         painter.drawRoundedRect(rect, 12, 12)
 
-        # Draw text
         painter.setPen(QColor(255, 255, 255, 255))
         painter.setFont(self.font())
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
@@ -347,8 +347,6 @@ class ModernArknightsLauncher(FramelessWindow):
         self.refresh_accounts_list()
         
         # 在界面初始化完成后检查是否需要首次配置指南
-        # 使用 QTimer 稍微延迟触发以确保窗口已经渲染完毕
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(100, self.check_first_run)
         
     def check_first_run(self):
@@ -525,10 +523,15 @@ class ModernArknightsLauncher(FramelessWindow):
         self.saveAccBtn.setToolTip("保存当前状态为新账号")
         self.saveAccBtn.clicked.connect(self.on_save_account)
         
+        self.delAccBtn = ToolButton(FluentIcon.DELETE, self)
+        self.delAccBtn.setToolTip("删除选中的账号预设")
+        self.delAccBtn.clicked.connect(self.on_delete_account)
+        
         self.accRow.addWidget(self.accLabel)
         self.accRow.addStretch(1)
         self.accRow.addWidget(self.accountCombo)
         self.accRow.addWidget(self.saveAccBtn)
+        self.accRow.addWidget(self.delAccBtn)
         self.infoLayout.addLayout(self.accRow)
         
         # 2. 工具模块布局
@@ -541,8 +544,8 @@ class ModernArknightsLauncher(FramelessWindow):
         self.toolsRow.addWidget(self.fixBtn)
         self.infoLayout.addLayout(self.toolsRow)
 
-        # --- 巨型启动按钮 ---
-        self.startBtn = PrimaryPushButton(' 启动游戏  START', self, FluentIcon.PLAY)
+        # --- 巨型启动按钮（带悬浮色变动画）---
+        self.startBtn = AnimatedStartButton(' 启动游戏  START', self)
         self.startBtn.setFixedSize(380, 80)
         self.startBtn.setFont(QFont("Microsoft YaHei", 20, QFont.Weight.Bold))
         self.startBtn.clicked.connect(self.on_start_game)
@@ -563,20 +566,25 @@ class ModernArknightsLauncher(FramelessWindow):
         
         self.mainLayout.addWidget(self.rightContent)
 
-        # 默认选中官服
-        self.current_server = 'official'
-        self.on_server_switched('official')
+        # 恢复上次选择的服务器
+        saved_server = self.config.get('last_server', 'official')
+        self.current_server = saved_server
+        self.on_server_switched(saved_server)
 
         self.titleBar.raise_()
 
     def on_server_switched(self, routeKey):
         self.current_server = routeKey
+        # 持久化上次选择的服务器
+        self.config['last_server'] = routeKey
+        save_config(self.config)
+        
         if routeKey == 'official':
-            if hasattr(self, 'btnOff'): self.btnOff.set_active(True)
-            if hasattr(self, 'btnBili'): self.btnBili.set_active(False)
+            self.btnOff.set_active(True)
+            self.btnBili.set_active(False)
         else:
-            if hasattr(self, 'btnOff'): self.btnOff.set_active(False)
-            if hasattr(self, 'btnBili'): self.btnBili.set_active(True)
+            self.btnOff.set_active(False)
+            self.btnBili.set_active(True)
 
     # ================= 功能逻辑 =================
     
@@ -623,6 +631,21 @@ class ModernArknightsLauncher(FramelessWindow):
             self.accountCombo.setCurrentText(acc_name)
             InfoBar.success('成功', f'当前登录账状态已保存为：{acc_name}', position=InfoBarPosition.TOP, parent=self)
 
+    def on_delete_account(self):
+        selected_acc = self.accountCombo.currentText()
+        if not selected_acc or selected_acc == "默认 (不覆盖)":
+            InfoBar.warning('无法删除', '请先选择一个已保存的账号预设。', position=InfoBarPosition.TOP, parent=self)
+            return
+        
+        msg_box = MessageBox('删除确认', f'确定要删除账号预设 "{selected_acc}" 吗？\n此操作不可恢复。', self)
+        if msg_box.exec():
+            acc_path = os.path.join(ACCOUNTS_DIR, selected_acc)
+            if os.path.exists(acc_path):
+                shutil.rmtree(acc_path, ignore_errors=True)
+                logger.info(f'已删除账号预设: {selected_acc}')
+            self.refresh_accounts_list()
+            InfoBar.success('已删除', f'账号预设 "{selected_acc}" 已被移除。', position=InfoBarPosition.TOP, parent=self)
+
     def on_settings_clicked(self):
         dialog = SettingsDialog(self.config, self)
         if dialog.exec():
@@ -654,6 +677,7 @@ class ModernArknightsLauncher(FramelessWindow):
                 
                 InfoBar.success('成功', "记忆模糊清理覆盖完毕！可尝试重新登录。", position=InfoBarPosition.TOP, duration=3000, parent=self)
             except Exception as e:
+                logger.exception('修复清理时发生异常')
                 InfoBar.error('修复失败', f"清理时发生错误: {str(e)}", position=InfoBarPosition.TOP, parent=self)
 
     def on_maa_clicked(self):
@@ -668,6 +692,7 @@ class ModernArknightsLauncher(FramelessWindow):
             subprocess.Popen(maa_path, cwd=os.path.dirname(maa_path))
             InfoBar.success('启动成功', "成功拉起 MAA 辅助进程", position=InfoBarPosition.TOP, duration=2000, parent=self)
         except Exception as e:
+            logger.exception('启动 MAA 失败')
             InfoBar.error('错误', f'启动 MAA 失败: {str(e)}', position=InfoBarPosition.TOP, parent=self)
 
     def on_start_game(self):
@@ -719,6 +744,7 @@ class ModernArknightsLauncher(FramelessWindow):
                 InfoBar.error('错误', '在游戏目录下未找到 Arknights.exe，请检查游戏是否损坏！', position=InfoBarPosition.TOP, parent=self)
 
         except Exception as e:
+            logger.exception('启动游戏时发生异常')
             InfoBar.error('执行中止', str(e), position=InfoBarPosition.TOP, duration=4000, parent=self)
 
     # ---------------- 辅助方法 ---------------- 
