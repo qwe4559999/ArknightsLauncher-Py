@@ -8,18 +8,16 @@ import subprocess
 import ctypes
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QVariantAnimation, QRect
-from PyQt6.QtGui import (
-    QIcon, QFont, QPixmap, QPainter, QColor, QBrush, QAction, QPainterPath, QPen
-)
+from PyQt6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QPushButton,
     QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy, QSystemTrayIcon, QMenu
 )
 from qfluentwidgets import (
-    SubtitleLabel, setTheme, Theme, TitleLabel, CardWidget,
-    IconWidget, BodyLabel, PushButton, FluentIcon, PrimaryPushButton,
+    SubtitleLabel, setTheme, Theme,
+    BodyLabel, PushButton, FluentIcon,
     MessageBox, InfoBar, InfoBarPosition, LineEdit, ToolButton,
-    ComboBox, MessageBoxBase, SegmentedWidget, TransparentDropDownPushButton, RoundMenu, Action,
+    ComboBox, MessageBoxBase,
     TransparentToolButton, MSFluentTitleBar, ToolTipFilter, ToolTipPosition
 )
 from qframelesswindow import FramelessWindow
@@ -37,7 +35,7 @@ OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
 
-VERSION = 'v1.1.1'
+VERSION = 'v1.1.2'
 
 # ================= 日志系统 =================
 LOG_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2')
@@ -446,7 +444,6 @@ class ModernArknightsLauncher(FramelessWindow):
                 background: transparent;
             }}
             #InfoPanel {{
-                background-color: rgba(0, 0, 0, 0.6);
                 border-radius: 12px;
             }}
         """)
@@ -751,7 +748,8 @@ class ModernArknightsLauncher(FramelessWindow):
             InfoBar.error('未配置!', '请先点击左下角设置游戏根目录。', position=InfoBarPosition.TOP, parent=self)
             return
 
-        msgBox = MessageBox('修复确认', '是否要执行登录数据重置？\n\n• 关闭正在运行的游戏进程\n• 清除已保存的登录状态 (U8Data / sdkdata)\n• 使用原始客户端文件覆盖冲突文件\n\n⚠ 执行后需要重新登录游戏账号。', self)
+        server_name = '官服' if self.current_server == 'official' else 'B服'
+        msgBox = MessageBox('修复确认', f'是否要对【{server_name}】执行登录数据重置？\n\n• 关闭正在运行的游戏进程\n• 清除已保存的登录状态 (U8Data / sdkdata)\n• 使用当前服务器的原始客户端文件覆盖冲突文件\n\n⚠ 执行后需要重新登录游戏账号。', self)
         if msgBox.exec():
             self.kill_process("Arknights.exe")
             try:
@@ -761,11 +759,15 @@ class ModernArknightsLauncher(FramelessWindow):
                 sdk_data = os.path.join(game_path, "sdkdata")
                 if os.path.exists(sdk_data): shutil.rmtree(sdk_data, ignore_errors=True)
 
-                res_path = os.path.join(BASE_DIR, 'resources', 'Payload')
+                # 根据当前选择的服务器使用对应资源
+                if self.current_server == 'official':
+                    res_path = os.path.join(BASE_DIR, 'resources', 'Payload')
+                else:
+                    res_path = os.path.join(BASE_DIR, 'resources', 'Payload_B')
                 if os.path.exists(res_path):
                     self.copy_tree_overwrite(res_path, game_path)
                 
-                InfoBar.success('成功', "记忆模糊清理覆盖完毕！可尝试重新登录。", position=InfoBarPosition.TOP, duration=3000, parent=self)
+                InfoBar.success('成功', f"【{server_name}】环境修复完毕！可尝试重新登录。", position=InfoBarPosition.TOP, duration=3000, parent=self)
             except Exception as e:
                 logger.exception('修复清理时发生异常')
                 InfoBar.error('修复失败', f"清理时发生错误: {str(e)}", position=InfoBarPosition.TOP, parent=self)
@@ -791,15 +793,17 @@ class ModernArknightsLauncher(FramelessWindow):
             InfoBar.error('未配置!', '请先点击左下角设置游戏根目录。', position=InfoBarPosition.TOP, duration=3000, parent=self)
             return
 
-        # 启动确认
+        # 检测当前游戏目录实际服务器状态
         server_name = '官服' if self.current_server == 'official' else 'B服'
         detected = self._detect_current_server(game_path)
+        need_overlay = (detected != self.current_server)
         acc_text = self.accountCombo.currentText()
 
-        if detected == self.current_server:
-            summary = f'当前游戏文件已是【{server_name}】环境，将直接启动（跳过文件覆盖）。'
-        else:
+        # 启动确认
+        if need_overlay:
             summary = f'即将切换到【{server_name}】模式，需要覆盖游戏目录中的部分文件。'
+        else:
+            summary = f'当前游戏文件已是【{server_name}】环境，将直接启动（跳过文件覆盖）。'
         if acc_text and acc_text != "默认 (不覆盖)":
             summary += f'\n将加载账号预设「{acc_text}」。'
         summary += '\n\n是否继续？'
@@ -809,9 +813,6 @@ class ModernArknightsLauncher(FramelessWindow):
         self.kill_process("Arknights.exe")
 
         try:
-            # 检测当前游戏目录实际服务器状态
-            detected = self._detect_current_server(game_path)
-            need_overlay = (detected != self.current_server)
 
             if need_overlay:
                 # 文件覆盖逻辑 — 仅在服务器切换时执行
@@ -859,12 +860,20 @@ class ModernArknightsLauncher(FramelessWindow):
 
     # ---------------- 辅助方法 ---------------- 
     def kill_process(self, process_name):
+        killed = []
         for proc in psutil.process_iter(['name']):
-            if proc.info['name'] and proc.info['name'].lower() == process_name.lower():
-                try:
+            try:
+                if proc.info['name'] and proc.info['name'].lower() == process_name.lower():
                     proc.kill()
-                except psutil.AccessDenied:
-                    pass
+                    killed.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        # 等待进程真正退出，避免文件锁冲突
+        for proc in killed:
+            try:
+                proc.wait(timeout=5)
+            except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+                pass
 
     def _detect_current_server(self, game_path):
         """检测游戏目录当前实际对应的服务器，通过特征文件判断"""
@@ -877,14 +886,18 @@ class ModernArknightsLauncher(FramelessWindow):
         # 无法确定或首次使用时，返回 None 强制执行覆盖
         return None
 
-    def copy_tree_overwrite(self, src_dir, dst_dir):
+    def copy_tree_overwrite(self, src_dir, dst_dir, exclude=None):
+        if exclude is None:
+            exclude = {'meta.json'}
         if not os.path.exists(dst_dir):
             os.makedirs(dst_dir)
         for item in os.listdir(src_dir):
+            if item in exclude:
+                continue
             s = os.path.join(src_dir, item)
             d = os.path.join(dst_dir, item)
             if os.path.isdir(s):
-                self.copy_tree_overwrite(s, d)
+                self.copy_tree_overwrite(s, d, exclude)
             else:
                 shutil.copy2(s, d)
 
@@ -927,8 +940,12 @@ class ModernArknightsLauncher(FramelessWindow):
     def closeEvent(self, e):
         if self._config_dirty:
             save_config(self.config)
-        if hasattr(self, 'trayIcon'):
-            self.trayIcon.hide()
+            self._config_dirty = False
+        # 点 X 时最小化到托盘而非退出
+        if hasattr(self, 'trayIcon') and self.trayIcon.isVisible():
+            e.ignore()
+            self._minimize_to_tray()
+            return
         super().closeEvent(e)
 
 if __name__ == '__main__':
