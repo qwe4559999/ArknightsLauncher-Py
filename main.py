@@ -6,12 +6,17 @@ import logging
 import psutil
 import subprocess
 import ctypes
+import tempfile
+import urllib.request
+import re
+from packaging.version import Version
 
-from PyQt6.QtCore import Qt, QSize, QTimer, QVariantAnimation, QRect
+from PyQt6.QtCore import Qt, QSize, QTimer, QVariantAnimation, QRect, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon, QFont, QPixmap, QPainter, QColor, QPen
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QPushButton,
-    QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy, QSystemTrayIcon, QMenu
+    QFileDialog, QFrame, QGraphicsDropShadowEffect, QSizePolicy, QSystemTrayIcon, QMenu,
+    QProgressBar, QDialog
 )
 from qfluentwidgets import (
     SubtitleLabel, setTheme, Theme,
@@ -35,7 +40,9 @@ OFFICIAL_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'official.ico')
 BSERVER_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'bserver.ico')
 MAA_ICON = os.path.join(BASE_DIR, 'resources', 'Icons', 'MAA.ico')
 
-VERSION = 'v1.1.2'
+VERSION = 'v1.2.0'
+GITHUB_REPO = 'qwe4559999/ArknightsLauncher-Py'
+GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest'
 
 # ================= 日志系统 =================
 LOG_DIR = os.path.join(os.getenv('APPDATA'), 'ArknightsLauncher_v2')
@@ -51,6 +58,132 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('ArknightsLauncher')
+
+# ================= 自动更新组件 =================
+class UpdateChecker(QThread):
+    """后台线程检查 GitHub Releases 最新版本"""
+    update_available = pyqtSignal(str, str, str)  # (new_version, changelog, download_url)
+    
+    def run(self):
+        try:
+            req = urllib.request.Request(GITHUB_API_URL, headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'ArknightsLauncher'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            
+            remote_tag = data.get('tag_name', '')
+            if not remote_tag:
+                return
+            
+            # 版本比较 (去掉 v 前缀)
+            local_ver = Version(VERSION.lstrip('v'))
+            remote_ver = Version(remote_tag.lstrip('v'))
+            
+            if remote_ver > local_ver:
+                changelog = data.get('body', '') or '无更新日志'
+                # 查找 .exe 下载链接
+                download_url = ''
+                for asset in data.get('assets', []):
+                    if asset['name'].lower().endswith('.exe'):
+                        download_url = asset['browser_download_url']
+                        break
+                if not download_url:
+                    download_url = data.get('html_url', '')
+                
+                self.update_available.emit(remote_tag, changelog, download_url)
+            else:
+                logger.info(f'已是最新版本 {VERSION}')
+        except Exception as e:
+            logger.warning(f'检查更新失败: {e}')
+
+
+class UpdateDownloadDialog(QDialog):
+    """下载进度对话框"""
+    def __init__(self, download_url, new_version, parent=None):
+        super().__init__(parent)
+        self.download_url = download_url
+        self.new_version = new_version
+        self.setWindowTitle(f'正在下载 {new_version}')
+        self.setFixedSize(420, 130)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        
+        self.label = QLabel(f'正在下载 {new_version} ...', self)
+        self.label.setStyleSheet('font-size: 14px;')
+        layout.addWidget(self.label)
+        
+        self.progressBar = QProgressBar(self)
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+        layout.addWidget(self.progressBar)
+        
+        self.download_thread = DownloadThread(download_url)
+        self.download_thread.progress.connect(self.on_progress)
+        self.download_thread.finished_path.connect(self.on_finished)
+        self.download_thread.error.connect(self.on_error)
+        self.download_thread.start()
+        
+        self.downloaded_path = None
+    
+    def on_progress(self, percent):
+        self.progressBar.setValue(percent)
+    
+    def on_finished(self, path):
+        self.downloaded_path = path
+        self.label.setText('下载完成！即将重启启动器...')
+        self.progressBar.setValue(100)
+        QTimer.singleShot(800, self.accept)
+    
+    def on_error(self, msg):
+        self.label.setText(f'下载失败: {msg}')
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+    
+    def closeEvent(self, e):
+        if self.download_thread.isRunning():
+            self.download_thread.terminate()
+        super().closeEvent(e)
+
+
+class DownloadThread(QThread):
+    """后台下载线程"""
+    progress = pyqtSignal(int)
+    finished_path = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+    
+    def run(self):
+        try:
+            req = urllib.request.Request(self.url, headers={'User-Agent': 'ArknightsLauncher'})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get('Content-Length', 0))
+                
+                # 下载到临时目录
+                tmp_dir = os.path.join(tempfile.gettempdir(), 'ArknightsLauncher_update')
+                os.makedirs(tmp_dir, exist_ok=True)
+                tmp_path = os.path.join(tmp_dir, 'ArknightsLauncher_new.exe')
+                
+                downloaded = 0
+                block_size = 8192
+                with open(tmp_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(block_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total > 0:
+                            self.progress.emit(int(downloaded * 100 / total))
+            
+            self.finished_path.emit(tmp_path)
+        except Exception as e:
+            self.error.emit(str(e))
+
 
 # ================= 颜色插值工具 =================
 def lerp_color(c1: QColor, c2: QColor, t: float) -> QColor:
@@ -367,6 +500,8 @@ class ModernArknightsLauncher(FramelessWindow):
         
         # 在界面初始化完成后检查是否需要首次配置指南
         QTimer.singleShot(100, self.check_first_run)
+        # 后台检查更新
+        QTimer.singleShot(2000, self._check_for_updates)
         
     def check_first_run(self):
         """ 检查是否是首次运行，如果是则强制要求设置游戏路径 """
@@ -911,11 +1046,95 @@ class ModernArknightsLauncher(FramelessWindow):
             '• 一键切换官服 / Bilibili 服务器\n'
             '• 多账号预设保存与加载\n'
             '• MAA 辅助快速启动\n'
-            '• 客户端登录数据修复\n\n'
-            '项目地址: github.com/qwe4559999/ArknightsLauncher-Py\n'
+            '• 客户端登录数据修复\n'
+            '• 自动检查更新\n\n'
+            f'项目地址: github.com/{GITHUB_REPO}\n'
             f'版本: {VERSION}',
             self
         ).exec()
+
+    # ================= 自动更新 =================
+
+    def _check_for_updates(self):
+        """启动后台更新检查线程"""
+        self._update_checker = UpdateChecker()
+        self._update_checker.update_available.connect(self._on_update_available)
+        self._update_checker.start()
+
+    def _on_update_available(self, new_version, changelog, download_url):
+        """发现新版本时显示更新提示"""
+        logger.info(f'发现新版本: {new_version}')
+        
+        # 截取更新日志前 200 字
+        short_log = changelog[:200] + ('...' if len(changelog) > 200 else '')
+        
+        msg = MessageBox(
+            f'发现新版本 {new_version}',
+            f'当前版本: {VERSION}\n最新版本: {new_version}\n\n'
+            f'更新内容:\n{short_log}\n\n'
+            '是否立即更新？',
+            self
+        )
+        msg.yesButton.setText('立即更新')
+        msg.cancelButton.setText('下次再说')
+        
+        if msg.exec():
+            self._do_update(download_url, new_version)
+
+    def _do_update(self, download_url, new_version):
+        """执行下载并替换"""
+        # 如果链接是 GitHub Release 页面(非 exe)，直接打开浏览器
+        if not download_url.lower().endswith('.exe'):
+            os.startfile(download_url)
+            return
+        
+        dialog = UpdateDownloadDialog(download_url, new_version, self)
+        if dialog.exec() and dialog.downloaded_path:
+            self._apply_update(dialog.downloaded_path)
+
+    def _apply_update(self, new_exe_path):
+        """生成替换脚本并重启"""
+        if not getattr(sys, 'frozen', False):
+            # 开发模式下不执行替换
+            InfoBar.success('开发模式', f'新版已下载到: {new_exe_path}', position=InfoBarPosition.TOP, duration=5000, parent=self)
+            return
+        
+        current_exe = sys.executable
+        bat_path = os.path.join(tempfile.gettempdir(), 'ArknightsLauncher_update', 'update.bat')
+        
+        # 生成替换脚本: 等待当前进程退出 -> 替换 exe -> 重启
+        bat_content = f"""@echo off
+:wait
+tasklist /FI "PID eq {os.getpid()}" 2>NUL | find /I "{os.getpid()}" >NUL
+if not errorlevel 1 (
+    timeout /t 1 /nobreak >NUL
+    goto wait
+)
+copy /Y "{new_exe_path}" "{current_exe}"
+if errorlevel 1 (
+    echo Update failed!
+    pause
+    exit /b 1
+)
+start "" "{current_exe}"
+del "{new_exe_path}"
+del "%~f0"
+"""
+        
+        with open(bat_path, 'w', encoding='gbk') as f:
+            f.write(bat_content)
+        
+        # 启动替换脚本并退出当前进程
+        subprocess.Popen(
+            ['cmd', '/c', bat_path],
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        # 强制退出
+        if self._config_dirty:
+            save_config(self.config)
+        self.trayIcon.hide()
+        QApplication.quit()
 
     def on_tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
